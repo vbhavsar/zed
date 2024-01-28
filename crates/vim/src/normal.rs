@@ -140,7 +140,7 @@ pub fn normal_motion(
     cx: &mut WindowContext,
 ) {
     Vim::update(cx, |vim, cx| {
-        match operator {
+      match operator {
             None => move_cursor(vim, motion, times, cx),
             Some(Operator::Change) => change_motion(vim, motion, times, cx),
             Some(Operator::Delete) => delete_motion(vim, motion, times, cx),
@@ -180,10 +180,11 @@ pub(crate) fn move_cursor(
 ) {
     vim.update_active_editor(cx, |editor, cx| {
         let text_layout_details = editor.text_layout_details(cx);
+        let editor2 = editor.clone(cx);
         editor.change_selections(Some(Autoscroll::fit()), cx, |s| {
             s.move_cursors_with(|map, cursor, goal| {
                 motion
-                    .move_point(map, cursor, goal, times, &text_layout_details)
+                    .move_point(map, cursor, goal, times, &text_layout_details, &editor2)
                     .unwrap_or((cursor, goal))
             })
         })
@@ -299,6 +300,7 @@ fn insert_line_below(_: &mut Workspace, _: &InsertLineBelow, cx: &mut ViewContex
                     new_text.push_str(&" ".repeat(indent as usize));
                     (end_of_line..end_of_line, new_text)
                 });
+                let editor2 = editor.clone(cx);
                 editor.change_selections(Some(Autoscroll::fit()), cx, |s| {
                     s.maybe_move_cursors_with(|map, cursor, goal| {
                         Motion::CurrentLine.move_point(
@@ -307,6 +309,7 @@ fn insert_line_below(_: &mut Workspace, _: &InsertLineBelow, cx: &mut ViewContex
                             goal,
                             None,
                             &text_layout_details,
+                            &editor2
                         )
                     });
                 });

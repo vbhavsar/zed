@@ -1,7 +1,5 @@
 use editor::{
-    display_map::{DisplaySnapshot, FoldPoint, ToDisplayPoint},
-    movement::{self, find_boundary, find_preceding_boundary, FindRange, TextLayoutDetails},
-    Bias, DisplayPoint, ToOffset,
+  display_map::{DisplaySnapshot, FoldPoint, ToDisplayPoint}, movement::{self, find_boundary, find_preceding_boundary, FindRange, TextLayoutDetails}, Bias, DisplayPoint, Editor, ToOffset
 };
 use gpui::{actions, impl_actions, px, ViewContext, WindowContext};
 use language::{char_kind, CharKind, Point, Selection, SelectionGoal};
@@ -41,6 +39,9 @@ pub enum Motion {
     StartOfLineDownward,
     EndOfLineDownward,
     GoToColumn,
+    WindowTop,
+    WindowMiddle,
+    WindowBottom,
 }
 
 #[derive(Clone, Deserialize, PartialEq)]
@@ -136,6 +137,9 @@ actions!(
         StartOfLineDownward,
         EndOfLineDownward,
         GoToColumn,
+        WindowTop,
+        WindowMiddle,
+        WindowBottom,
     ]
 );
 
@@ -231,6 +235,16 @@ pub fn register(workspace: &mut Workspace, _: &mut ViewContext<Workspace>) {
     workspace.register_action(|_: &mut Workspace, action: &RepeatFind, cx: _| {
         repeat_motion(action.backwards, cx)
     });
+    workspace.register_action(|_: &mut Workspace, &WindowTop, cx: _| {
+        // motion(Motion::WindowTop, cx);
+        motion(Motion::WindowTop, cx);
+    });
+    workspace.register_action(|_: &mut Workspace, &WindowMiddle, cx: _| {
+        motion(Motion::WindowMiddle, cx)
+    });
+    workspace.register_action(|_: &mut Workspace, &WindowBottom, cx: _| {
+        motion(Motion::WindowBottom, cx)
+    });
 }
 
 pub(crate) fn motion(motion: Motion, cx: &mut WindowContext) {
@@ -258,8 +272,7 @@ fn repeat_motion(backwards: bool, cx: &mut WindowContext) {
             if backwards {
                 Motion::FindBackward {
                     after: before,
-                    char,
-                }
+                    char, }
             } else {
                 Motion::FindForward { before, char }
             }
@@ -295,6 +308,9 @@ impl Motion {
             | NextLineStart
             | StartOfLineDownward
             | StartOfParagraph
+            | WindowTop
+            | WindowMiddle
+            | WindowBottom
             | EndOfParagraph => true,
             EndOfLine { .. }
             | NextWordEnd { .. }
@@ -336,6 +352,9 @@ impl Motion {
             | PreviousWordStart { .. }
             | FirstNonWhitespace { .. }
             | FindBackward { .. }
+            | WindowTop
+            | WindowMiddle
+            | WindowBottom
             | NextLineStart => false,
         }
     }
@@ -353,6 +372,9 @@ impl Motion {
             | NextWordEnd { .. }
             | Matching
             | FindForward { .. }
+            | WindowTop
+            | WindowMiddle
+            | WindowBottom
             | NextLineStart => true,
             Left
             | Backspace
@@ -376,6 +398,7 @@ impl Motion {
         goal: SelectionGoal,
         maybe_times: Option<usize>,
         text_layout_details: &TextLayoutDetails,
+        editor: &Editor
     ) -> Option<(DisplayPoint, SelectionGoal)> {
         let times = maybe_times.unwrap_or(1);
         use Motion::*;
@@ -446,6 +469,9 @@ impl Motion {
             StartOfLineDownward => (next_line_start(map, point, times - 1), SelectionGoal::None),
             EndOfLineDownward => (next_line_end(map, point, times), SelectionGoal::None),
             GoToColumn => (go_to_column(map, point, times), SelectionGoal::None),
+            WindowTop => window_top(map, point, &text_layout_details, editor),
+            WindowMiddle => (window_middle(map, point, &text_layout_details), SelectionGoal::None),
+            WindowBottom => (window_bottom(map, point, &text_layout_details), SelectionGoal::None),
         };
 
         (new_point != point || infallible).then_some((new_point, goal))
@@ -459,6 +485,7 @@ impl Motion {
         times: Option<usize>,
         expand_to_surrounding_newline: bool,
         text_layout_details: &TextLayoutDetails,
+        editor: &Editor,
     ) -> bool {
         if let Some((new_head, goal)) = self.move_point(
             map,
@@ -466,6 +493,7 @@ impl Motion {
             selection.goal,
             times,
             &text_layout_details,
+            &editor
         ) {
             selection.set_head(new_head, goal);
 
@@ -952,6 +980,65 @@ pub(crate) fn next_line_end(
     end_of_line(map, false, point)
 }
 
+fn window_top(map: &DisplaySnapshot,
+    point: DisplayPoint,
+    _text_layout_details: &TextLayoutDetails,
+    editor: &Editor) -> (DisplayPoint, SelectionGoal) {
+
+      println!("point: {:?}", &point);
+      println!("row: {:?}", point.row());
+
+      println!("vertical scroll margin: {:?}", &editor.vertical_scroll_margin());
+      println!("visible line count: {:?}", editor.visible_line_count());
+      let visible_rows = if let Some(visible_rows) = editor.visible_line_count() {
+        visible_rows as u32
+      } else {
+        // todo: do something else
+        // bounds.size.height / line_height
+        0
+      };
+      println!("visible rows: {:?}", visible_rows);
+      let top_anchor = editor.scroll_manager.anchor().anchor;
+      let top = top_anchor.to_display_point(map);
+      let top_row = top.row() + editor::scroll::VERTICAL_SCROLL_MARGIN as u32;
+
+      let new_point = DisplayPoint::new(top.row() + editor::scroll::VERTICAL_SCROLL_MARGIN, 0);
+      let bottom_row = top.row() + visible_rows - editor::scroll::VERTICAL_SCROLL_MARGIN as u32 - 1;
+      println!("top row: {:?}\nbottom row: {:?}", top_row, bottom_row);
+
+      // Vim::update(cx, |vim, cx| {
+      //     vim.update_active_editor(cx, |editor, cx| {
+      //       let visible_rows = if let Some(visible_rows) = editor.visible_line_count() {
+      //           visible_rows as u32
+      //       } else {
+      //           return;
+      //       };
+
+      //       let top_anchor = editor.scroll_manager.anchor().anchor;
+      //       let top = top_anchor.to_display_point(map);
+      //       let top_row = top.row() + VERTICAL_SCROLL_MARGIN as u32;
+      //       let bottom_row = top.row() + visible_rows - VERTICAL_SCROLL_MARGIN as u32 - 1;
+      //       println!("top row: {:?}\nbottom row: {:?}", top_row, bottom_row);
+      //     })
+      // });
+
+      (top, SelectionGoal::None)
+    }
+
+fn window_middle(map: &DisplaySnapshot,
+    point: DisplayPoint,
+    _text_layout_details: &TextLayoutDetails) -> DisplayPoint {
+      let _offset = point.to_offset(map, Bias::Left);
+      point
+}
+
+fn window_bottom(map: &DisplaySnapshot,
+    point: DisplayPoint,
+    _text_layout_details: &TextLayoutDetails) -> DisplayPoint {
+      let _offset = point.to_offset(map, Bias::Left);
+      point
+}
+
 #[cfg(test)]
 mod test {
 
@@ -1103,5 +1190,13 @@ mod test {
         cx.set_shared_state("ˇone\n  two\nthree").await;
         cx.simulate_shared_keystrokes(["enter"]).await;
         cx.assert_shared_state("one\n  ˇtwo\nthree").await;
+    }
+
+    #[gpui::test]
+    async fn test_top(cx: &mut gpui::TestAppContext) {
+      let mut cx = NeovimBackedTestContext::new(cx).await;
+      cx.set_shared_state("one\n  two\nthreˇe").await;
+      cx.simulate_shared_keystrokes(["shift-h"]).await;
+      cx.assert_shared_state("ˇone\n  two\nthree").await;
     }
 }

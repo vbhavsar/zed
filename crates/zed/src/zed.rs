@@ -517,7 +517,11 @@ pub fn handle_keymap_file_changes(
                 _ = base_keymap_rx.next() => {}
                 user_keymap_content = user_keymap_file_rx.next() => {
                     if let Some(user_keymap_content) = user_keymap_content {
-                        if let Some(keymap_content) = KeymapFile::parse(&user_keymap_content).log_err() {
+                      println!("user_keymap_content: {:?}", user_keymap_content);
+                      if user_keymap_content == "" {
+                        continue
+                      }
+                      if let Some(keymap_content) = KeymapFile::parse(&user_keymap_content).log_err() {
                             user_keymap = keymap_content;
                         } else {
                             continue
